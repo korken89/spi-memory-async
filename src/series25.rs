@@ -141,22 +141,17 @@ impl<SPI: Transfer<u8>, CS: OutputPin, STATE> Flash<SPI, CS, STATE> {
     ///   mode for the device.
     /// * **`cs`**: The **C**hip-**S**elect Pin connected to the `\CS`/`\CE` pin
     ///   of the flash chip. Will be driven low when accessing the device.
-    pub fn init(spi: SPI, cs: CS) -> Result<Flash<SPI, CS, Ready>, Error<SPI, CS>> {
+    pub fn init(spi: SPI, cs: CS) -> Flash<SPI, CS, Ready> {
         let mut this = Flash {
             spi,
             cs,
             state: Ready {},
         };
-        let status = this.read_status();
-        info!("Flash::init: status = {:?}", status);
 
-        // Here we don't expect any writes to be in progress, and the latch must
-        // also be deasserted.
-        if !(status & (Status::BUSY | Status::WEL)).is_empty() {
-            return Err(Error::UnexpectedStatus);
-        }
+        // If the MCU is reset and an old operation is still ongoing, wait for it to finish.
+        while this.read_status().contains(Status::BUSY) {}
 
-        Ok(this)
+        this
     }
 
     fn command(&mut self, bytes: &mut [u8]) {
