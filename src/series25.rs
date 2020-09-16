@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use core::convert::TryInto;
 use core::fmt;
 use core::task::Poll;
-use embedded_hal::blocking::spi::Transfer;
+use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
 
 /// Ready state.
@@ -217,7 +217,7 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Busy> {
     }
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
+impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     /// Reads flash contents into `buf`, starting at `addr`.
     ///
     /// Note that `addr` is not fully decoded: Flash chips will typically only
@@ -284,8 +284,8 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     ///
     /// Warning: Full erase operations can take a significant amount of time.
     /// Check your device's datasheet for precise numbers.
-    pub fn write_bytes(mut self, addr: u32, data: &mut [u8]) -> Flash<SPI, CS, Busy> {
-        for (c, chunk) in data.chunks_mut(256).enumerate() {
+    pub fn write_bytes(mut self, addr: u32, data: &[u8]) -> Flash<SPI, CS, Busy> {
+        for (c, chunk) in data.chunks(256).enumerate() {
             self.write_enable();
 
             let current_addr: u32 = (addr as usize + c * 256).try_into().unwrap();
@@ -302,7 +302,7 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
             if let Err(_) = self.spi.transfer(&mut cmd_buf) {
                 panic!("flash panic");
             }
-            if let Err(_) = self.spi.transfer(chunk) {
+            if let Err(_) = self.spi.write(chunk) {
                 panic!("flash panic");
             }
             if let Err(_) = self.cs.set_high() {
