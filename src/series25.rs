@@ -40,7 +40,7 @@ impl Identification {
 
         // Find the end of the continuation bytes (0x7F)
         let mut start_idx = 0;
-            for (i, item) in buf.iter().enumerate().take(buf.len() - 2) {
+        for (i, item) in buf.iter().enumerate().take(buf.len() - 2) {
             if *item != 0x7F {
                 start_idx = i;
                 break;
@@ -117,12 +117,16 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
-pub struct InternalSizes {
-    pub page_size: usize,
-    pub sector_size: usize,
-    pub block_size: usize,
-    pub chip_size: usize,
+/// Trait for defining the size of a flash.
+pub trait FlashParameters {
+    /// The page write size in bytes.
+    const PAGE_SIZE: usize;
+    /// The sector erase size in bytes.
+    const SECTOR_SIZE: usize;
+    /// The block erase size in bytes.
+    const BLOCK_SIZE: usize;
+    /// The total chip size in bytes.
+    const CHIP_SIZE: usize;
 }
 
 /// Driver for 25-series SPI Flash chips.
@@ -134,14 +138,16 @@ pub struct InternalSizes {
 ///   the flash chip.
 /// * **`STATE`**: The type-state of the driver.
 #[derive(Debug)]
-pub struct Flash<SPI: Transfer<u8>, CS: OutputPin, STATE> {
+pub struct Flash<SPI: Transfer<u8>, CS: OutputPin, STATE, FlashParams> {
     spi: SPI,
     cs: CS,
-    sizes: InternalSizes,
+    params: FlashParams,
     state: STATE,
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin, STATE> Flash<SPI, CS, STATE> {
+impl<SPI: Transfer<u8>, CS: OutputPin, STATE, FlashParams: FlashParameters>
+    Flash<SPI, CS, STATE, FlashParams>
+{
     /// Creates a new 25-series flash driver.
     ///
     /// # Parameters
@@ -150,11 +156,11 @@ impl<SPI: Transfer<u8>, CS: OutputPin, STATE> Flash<SPI, CS, STATE> {
     ///   mode for the device.
     /// * **`cs`**: The **C**hip-**S**elect Pin connected to the `\CS`/`\CE` pin
     ///   of the flash chip. Will be driven low when accessing the device.
-    pub fn init(spi: SPI, cs: CS, sizes: InternalSizes) -> Flash<SPI, CS, Ready> {
+    pub fn init(spi: SPI, cs: CS, params: FlashParams) -> Flash<SPI, CS, Ready, FlashParams> {
         let mut this = Flash {
             spi,
             cs,
-            sizes,
+            params,
             state: Ready {},
         };
 
@@ -162,6 +168,26 @@ impl<SPI: Transfer<u8>, CS: OutputPin, STATE> Flash<SPI, CS, STATE> {
         while this.read_status().contains(Status::BUSY) {}
 
         this
+    }
+
+    /// Get the size of a page which can be written.
+    pub fn page_write_size(&self) -> usize {
+        FlashParams::PAGE_SIZE
+    }
+
+    /// Get the size of a sector which can be erased.
+    pub fn sector_erase_size(&self) -> usize {
+        FlashParams::SECTOR_SIZE
+    }
+
+    /// Get the size of a block which can be erased.
+    pub fn block_erase_size(&self) -> usize {
+        FlashParams::BLOCK_SIZE
+    }
+
+    /// Get the size of the flash chip.
+    pub fn chip_size(&self) -> usize {
+        FlashParams::CHIP_SIZE
     }
 
     fn command(&mut self, bytes: &mut [u8]) {
@@ -202,7 +228,9 @@ impl<SPI: Transfer<u8>, CS: OutputPin, STATE> Flash<SPI, CS, STATE> {
     }
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Busy> {
+impl<SPI: Transfer<u8>, CS: OutputPin, FlashParams: FlashParameters>
+    Flash<SPI, CS, Busy, FlashParams>
+{
     pub fn wait(&mut self) -> Poll<()> {
         // TODO: Consider changing this to a delay based pattern
         let status = self.read_status();
@@ -216,19 +244,21 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS, Busy> {
         Poll::Ready(())
     }
 
-    pub fn finish_waiting(self) -> Flash<SPI, CS, Ready> {
-            assert!(self.state.done);
+    pub fn finish_waiting(self) -> Flash<SPI, CS, Ready, FlashParams> {
+        assert!(self.state.done);
 
         Flash {
             spi: self.spi,
             cs: self.cs,
-            sizes: self.sizes,
+            params: self.params,
             state: Ready {},
         }
     }
 }
 
-impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
+impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin, FlashParams: FlashParameters>
+    Flash<SPI, CS, Ready, FlashParams>
+{
     /// Reads flash contents into `buf`, starting at `addr`.
     ///
     /// Note that `addr` is not fully decoded: Flash chips will typically only
@@ -270,11 +300,12 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a sector boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub fn erase_sectors(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, Busy> {
+    /// * `amount`: The number of sectors to erase.
+    pub fn erase_sectors(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, Busy, FlashParams> {
         for c in 0..amount {
             self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * self.sizes.sector_size)
+            let current_addr: u32 = (addr as usize + c * FlashParams::SECTOR_SIZE)
                 .try_into()
                 .unwrap();
             let mut cmd_buf = [
@@ -289,7 +320,7 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
         Flash {
             spi: self.spi,
             cs: self.cs,
-            sizes: self.sizes,
+            params: self.params,
             state: Busy { done: false },
         }
     }
@@ -299,11 +330,12 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a block boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub fn erase_blocks(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, Busy> {
+    /// * `amount`: The number of blocks to erase.
+    pub fn erase_blocks(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, Busy, FlashParams> {
         for c in 0..amount {
             self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * self.sizes.block_size)
+            let current_addr: u32 = (addr as usize + c * FlashParams::BLOCK_SIZE)
                 .try_into()
                 .unwrap();
             let mut cmd_buf = [
@@ -318,7 +350,7 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
         Flash {
             spi: self.spi,
             cs: self.cs,
-            sizes: self.sizes,
+            params: self.params,
             state: Busy { done: false },
         }
     }
@@ -329,11 +361,11 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     /// # Parameters
     /// * `addr`: The address to write to.
     /// * `data`: The bytes to write to `addr`.
-    pub fn write_bytes(mut self, addr: u32, data: &[u8]) -> Flash<SPI, CS, Busy> {
-        for (c, chunk) in data.chunks(self.sizes.page_size).enumerate() {
+    pub fn write_bytes(mut self, addr: u32, data: &[u8]) -> Flash<SPI, CS, Busy, FlashParams> {
+        for (c, chunk) in data.chunks(FlashParams::PAGE_SIZE).enumerate() {
             self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * self.sizes.page_size)
+            let current_addr: u32 = (addr as usize + c * FlashParams::PAGE_SIZE)
                 .try_into()
                 .unwrap();
             let mut cmd_buf = [
@@ -360,7 +392,7 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
         Flash {
             spi: self.spi,
             cs: self.cs,
-            sizes: self.sizes,
+            params: self.params,
             state: Busy { done: false },
         }
     }
@@ -369,7 +401,7 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
     ///
     /// Warning: Full erase operations can take a significant amount of time.
     /// Check your device's datasheet for precise numbers.
-    pub fn erase_all(mut self) -> Flash<SPI, CS, Busy> {
+    pub fn erase_all(mut self) -> Flash<SPI, CS, Busy, FlashParams> {
         self.write_enable();
         let mut cmd_buf = [Opcode::ChipErase as u8];
         self.command(&mut cmd_buf);
@@ -377,7 +409,7 @@ impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin> Flash<SPI, CS, Ready> {
         Flash {
             spi: self.spi,
             cs: self.cs,
-            sizes: self.sizes,
+            params: self.params,
             state: Busy { done: false },
         }
     }
@@ -389,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_decode_jedec_id() {
-        let cypress_id_bytes = [0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xC2, 0x22, 0x08];
+        let cypress_id_bytes = [0x81, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xC2, 0x22, 0x08];
         let ident = Identification::from_jedec_id(&cypress_id_bytes);
         assert_eq!(0xC2, ident.mfr_code());
         assert_eq!(6, ident.continuation_count());
