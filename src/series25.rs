@@ -138,15 +138,23 @@ pub trait FlashParameters {
 ///   the flash chip.
 /// * **`STATE`**: The type-state of the driver.
 #[derive(Debug)]
-pub struct Flash<SPI: Transfer<u8>, CS: OutputPin, FlashParams, STATE> {
+pub struct Flash<SPI, CS, FlashParams, STATE>
+where
+    SPI: Transfer<u8> + Write<u8>,
+    CS: OutputPin,
+    FlashParams: FlashParameters,
+{
     spi: SPI,
     cs: CS,
     params: FlashParams,
     state: STATE,
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin, FlashParams: FlashParameters, STATE>
-    Flash<SPI, CS, FlashParams, STATE>
+impl<SPI, CS, FlashParams, STATE> Flash<SPI, CS, FlashParams, STATE>
+where
+    SPI: Transfer<u8> + Write<u8>,
+    CS: OutputPin,
+    FlashParams: FlashParameters,
 {
     /// Creates a new 26-series flash driver.
     ///
@@ -228,8 +236,11 @@ impl<SPI: Transfer<u8>, CS: OutputPin, FlashParams: FlashParameters, STATE>
     }
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin, FlashParams: FlashParameters>
-    Flash<SPI, CS, FlashParams, Busy>
+impl<SPI, CS, FlashParams> Flash<SPI, CS, FlashParams, Busy>
+where
+    SPI: Transfer<u8> + Write<u8>,
+    CS: OutputPin,
+    FlashParams: FlashParameters,
 {
     pub fn wait(&mut self) -> Poll<()> {
         // TODO: Consider changing this to a delay based pattern
@@ -256,8 +267,11 @@ impl<SPI: Transfer<u8>, CS: OutputPin, FlashParams: FlashParameters>
     }
 }
 
-impl<SPI: Transfer<u8> + Write<u8>, CS: OutputPin, FlashParams: FlashParameters>
-    Flash<SPI, CS, FlashParams, Ready>
+impl<SPI, CS, FlashParams> Flash<SPI, CS, FlashParams, Ready>
+where
+    SPI: Transfer<u8> + Write<u8>,
+    CS: OutputPin,
+    FlashParams: FlashParameters,
 {
     /// Reads flash contents into `buf`, starting at `addr`.
     ///
