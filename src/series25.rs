@@ -5,9 +5,9 @@ use crate::utils::HexSlice;
 use bitflags::bitflags;
 use core::convert::TryInto;
 use core::fmt;
-use core::task::Poll;
-use embedded_hal::blocking::spi::{Transfer, Write};
-use embedded_hal::digital::v2::OutputPin;
+pub use core::task::Poll;
+pub use embedded_hal::blocking::spi::{Transfer, Write};
+pub use embedded_hal::digital::v2::OutputPin;
 
 /// Ready state.
 #[derive(Debug)]
