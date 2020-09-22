@@ -3,7 +3,6 @@
 // use crate::{utils::HexSlice, BlockDevice, Error, Read};
 use crate::utils::HexSlice;
 use bitflags::bitflags;
-use core::convert::TryInto;
 use core::fmt;
 pub use core::task::Poll;
 pub use embedded_hal::blocking::spi::{Transfer, Write};
@@ -315,21 +314,16 @@ where
     /// * `addr`: The address to start erasing at. If the address is not on a sector boundary,
     ///   the lower bits can be ignored in order to make it fit.
     /// * `amount`: The number of sectors to erase.
-    pub fn erase_sectors(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, FlashParams, Busy> {
-        for c in 0..amount {
-            self.write_enable();
+    pub fn erase_sectors(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
+        self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * FlashParams::SECTOR_SIZE)
-                .try_into()
-                .unwrap();
-            let mut cmd_buf = [
-                Opcode::SectorErase as u8,
-                (current_addr >> 16) as u8,
-                (current_addr >> 8) as u8,
-                current_addr as u8,
-            ];
-            self.command(&mut cmd_buf);
-        }
+        let mut cmd_buf = [
+            Opcode::SectorErase as u8,
+            (addr >> 16) as u8,
+            (addr >> 8) as u8,
+            addr as u8,
+        ];
+        self.command(&mut cmd_buf);
 
         Flash {
             spi: self.spi,
@@ -345,21 +339,16 @@ where
     /// * `addr`: The address to start erasing at. If the address is not on a block boundary,
     ///   the lower bits can be ignored in order to make it fit.
     /// * `amount`: The number of blocks to erase.
-    pub fn erase_blocks(mut self, addr: u32, amount: usize) -> Flash<SPI, CS, FlashParams, Busy> {
-        for c in 0..amount {
-            self.write_enable();
+    pub fn erase_blocks(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
+        self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * FlashParams::BLOCK_SIZE)
-                .try_into()
-                .unwrap();
-            let mut cmd_buf = [
-                Opcode::BlockErase as u8,
-                (current_addr >> 16) as u8,
-                (current_addr >> 8) as u8,
-                current_addr as u8,
-            ];
-            self.command(&mut cmd_buf);
-        }
+        let mut cmd_buf = [
+            Opcode::BlockErase as u8,
+            (addr >> 16) as u8,
+            (addr >> 8) as u8,
+            addr as u8,
+        ];
+        self.command(&mut cmd_buf);
 
         Flash {
             spi: self.spi,
@@ -374,33 +363,29 @@ where
     ///
     /// # Parameters
     /// * `addr`: The address to write to.
-    /// * `data`: The bytes to write to `addr`.
+    /// * `data`: The bytes to write to `addr`, note that it will only take the lowest 256 bytes
+    /// from the slice.
     pub fn write_bytes(mut self, addr: u32, data: &[u8]) -> Flash<SPI, CS, FlashParams, Busy> {
-        for (c, chunk) in data.chunks(FlashParams::PAGE_SIZE).enumerate() {
-            self.write_enable();
+        self.write_enable();
 
-            let current_addr: u32 = (addr as usize + c * FlashParams::PAGE_SIZE)
-                .try_into()
-                .unwrap();
-            let mut cmd_buf = [
-                Opcode::PageProg as u8,
-                (current_addr >> 16) as u8,
-                (current_addr >> 8) as u8,
-                current_addr as u8,
-            ];
+        let mut cmd_buf = [
+            Opcode::PageProg as u8,
+            (addr >> 16) as u8,
+            (addr >> 8) as u8,
+            addr as u8,
+        ];
 
-            if self.cs.set_low().is_err() {
-                panic!("flash panic");
-            }
-            if self.spi.transfer(&mut cmd_buf).is_err() {
-                panic!("flash panic");
-            }
-            if self.spi.write(chunk).is_err() {
-                panic!("flash panic");
-            }
-            if self.cs.set_high().is_err() {
-                panic!("flash panic");
-            }
+        if self.cs.set_low().is_err() {
+            panic!("flash panic");
+        }
+        if self.spi.transfer(&mut cmd_buf).is_err() {
+            panic!("flash panic");
+        }
+        if self.spi.write(&data[..256.min(data.len())]).is_err() {
+            panic!("flash panic");
+        }
+        if self.cs.set_high().is_err() {
+            panic!("flash panic");
         }
 
         Flash {
