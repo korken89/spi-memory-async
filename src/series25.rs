@@ -308,13 +308,12 @@ where
         }
     }
 
-    /// Erases sectors from the memory chip.
+    /// Erases a sector from the memory chip.
     ///
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a sector boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    /// * `amount`: The number of sectors to erase.
-    pub fn erase_sectors(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
+    pub fn erase_sector(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
         self.write_enable();
 
         let mut cmd_buf = [
@@ -333,13 +332,12 @@ where
         }
     }
 
-    /// Erases blocks from the memory chip.
+    /// Erases a block from the memory chip.
     ///
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a block boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    /// * `amount`: The number of blocks to erase.
-    pub fn erase_blocks(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
+    pub fn erase_block(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
         self.write_enable();
 
         let mut cmd_buf = [
