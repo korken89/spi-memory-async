@@ -197,7 +197,7 @@ where
         FlashParams::CHIP_SIZE
     }
 
-    fn command(&mut self, bytes: &mut [u8]) {
+    fn command_transfer(&mut self, bytes: &mut [u8]) {
         // If the SPI transfer fails, make sure to disable CS anyways
         if self.cs.set_low().is_err() {
             panic!("flash panic");
@@ -210,12 +210,25 @@ where
         }
     }
 
+    fn command_write(&mut self, bytes: &[u8]) {
+        // If the SPI transfer fails, make sure to disable CS anyways
+        if self.cs.set_low().is_err() {
+            panic!("flash panic");
+        }
+        if self.spi.write(bytes).is_err() {
+            panic!("flash panic");
+        }
+        if self.cs.set_high().is_err() {
+            panic!("flash panic");
+        }
+    }
+
     /// Reads the JEDEC manufacturer/device identification.
     pub fn read_jedec_id(&mut self) -> Identification {
         // Optimistically read 12 bytes, even though some identifiers will be shorter
         let mut buf: [u8; 12] = [0; 12];
         buf[0] = Opcode::ReadJedecId as u8;
-        self.command(&mut buf);
+        self.command_transfer(&mut buf);
 
         // Skip buf[0] (SPI read response byte)
         Identification::from_jedec_id(&buf[1..])
@@ -224,14 +237,14 @@ where
     /// Reads the status register.
     pub fn read_status(&mut self) -> Status {
         let mut buf = [Opcode::ReadStatus as u8, 0];
-        self.command(&mut buf);
+        self.command_transfer(&mut buf);
 
         Status::from_bits_truncate(buf[1])
     }
 
     fn write_enable(&mut self) {
-        let mut cmd_buf = [Opcode::WriteEnable as u8];
-        self.command(&mut cmd_buf);
+        let cmd_buf = [Opcode::WriteEnable as u8];
+        self.command_write(&cmd_buf);
     }
 }
 
@@ -316,13 +329,13 @@ where
     pub fn erase_sector(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
         self.write_enable();
 
-        let mut cmd_buf = [
+        let cmd_buf = [
             Opcode::SectorErase as u8,
             (addr >> 16) as u8,
             (addr >> 8) as u8,
             addr as u8,
         ];
-        self.command(&mut cmd_buf);
+        self.command_write(&cmd_buf);
 
         Flash {
             spi: self.spi,
@@ -340,13 +353,13 @@ where
     pub fn erase_block(mut self, addr: u32) -> Flash<SPI, CS, FlashParams, Busy> {
         self.write_enable();
 
-        let mut cmd_buf = [
+        let cmd_buf = [
             Opcode::BlockErase as u8,
             (addr >> 16) as u8,
             (addr >> 8) as u8,
             addr as u8,
         ];
-        self.command(&mut cmd_buf);
+        self.command_write(&cmd_buf);
 
         Flash {
             spi: self.spi,
@@ -400,8 +413,8 @@ where
     /// Check your device's datasheet for precise numbers.
     pub fn erase_all(mut self) -> Flash<SPI, CS, FlashParams, Busy> {
         self.write_enable();
-        let mut cmd_buf = [Opcode::ChipErase as u8];
-        self.command(&mut cmd_buf);
+        let cmd_buf = [Opcode::ChipErase as u8];
+        self.command_write(&cmd_buf);
 
         Flash {
             spi: self.spi,
