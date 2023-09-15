@@ -2,13 +2,14 @@
 
 use crate::{utils::HexSlice, Error};
 use bitflags::bitflags;
-use core::fmt;
 use core::marker::PhantomData;
 pub use core::task::Poll;
+use core::{convert::TryInto, fmt};
 pub use embedded_hal_async::{
     delay::DelayUs,
     spi::{Operation, SpiDevice},
 };
+pub use embedded_storage_async;
 
 /// 3-Byte JEDEC manufacturer and device identification.
 pub struct Identification {
@@ -260,7 +261,7 @@ where
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a sector boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub async fn erase_sector(mut self, addr: u32) -> Result<(), Error<SPI>> {
+    pub async fn erase_sector(&mut self, addr: u32) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
 
         let cmd_buf = [
@@ -278,7 +279,7 @@ where
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a block boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub async fn erase_block(mut self, addr: u32) -> Result<(), Error<SPI>> {
+    pub async fn erase_block(&mut self, addr: u32) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
 
         let cmd_buf = [
@@ -298,7 +299,7 @@ where
     /// * `addr`: The address to write to.
     /// * `data`: The bytes to write to `addr`, note that it will only take the lowest 256 bytes
     /// from the slice.
-    pub async fn write_bytes(mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
+    pub async fn write_bytes(&mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
 
         let cmd_buf = [
@@ -322,11 +323,95 @@ where
     ///
     /// Warning: Full erase operations can take a significant amount of time.
     /// Check your device's datasheet for precise numbers.
-    pub async fn erase_all(mut self) -> Result<(), Error<SPI>> {
+    pub async fn erase_all(&mut self) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
         let cmd_buf = [Opcode::ChipErase as u8];
         self.command_write(&cmd_buf).await?;
         self.wait_done().await
+    }
+
+    /// Erases a range of sectors. The range is expressed in bytes. These bytes need to be a multiple of SECTOR_SIZE.
+    /// If the range starts at SECTOR_SIZE * 3 then the erase starts at the fourth sector.
+    /// All sectors are erased in the range [start_sector..end_sector].
+    /// The start address may not be a higher value than the end address.
+    ///
+    /// # Arguments
+    /// * `start_address` - Address of the first byte of the start of the range of sectors that need to be erased.
+    /// * `end_address` - Address of the first byte of the end of the range of sectors that need to be erased.
+    pub async fn erase_range(
+        &mut self,
+        start_address: u32,
+        end_address: u32,
+    ) -> Result<(), Error<SPI>> {
+        self.write_enable().await?;
+        let sector_size: u32 = FlashParams::SECTOR_SIZE.try_into().unwrap();
+
+        if start_address % sector_size != 0 {
+            return Err(Error::NotAligned);
+        }
+
+        if end_address % sector_size != 0 {
+            return Err(Error::NotAligned);
+        }
+
+        if start_address > end_address {
+            return Err(Error::OutOfBounds);
+        }
+
+        let start_sector = start_address / sector_size;
+        let end_sector = end_address / sector_size;
+
+        for sector in start_sector..end_sector {
+            self.erase_sector(sector).await.unwrap();
+        }
+
+        Ok(())
+    }
+}
+
+impl<SPI, FlashParams, Delay> embedded_storage::nor_flash::ErrorType
+    for Flash<SPI, FlashParams, Delay>
+where
+    SPI: SpiDevice<u8>,
+{
+    type Error = Error<SPI>;
+}
+
+impl<SPI, FlashParams, Delay> embedded_storage_async::nor_flash::ReadNorFlash
+    for Flash<SPI, FlashParams, Delay>
+where
+    SPI: SpiDevice<u8>,
+    Delay: DelayUs,
+    FlashParams: FlashParameters,
+{
+    const READ_SIZE: usize = 1;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(offset, bytes).await
+    }
+
+    fn capacity(&self) -> usize {
+        FlashParams::CHIP_SIZE.try_into().unwrap()
+    }
+}
+
+impl<SPI, FlashParams, Delay> embedded_storage_async::nor_flash::NorFlash
+    for Flash<SPI, FlashParams, Delay>
+where
+    SPI: SpiDevice<u8>,
+    Delay: DelayUs,
+    FlashParams: FlashParameters,
+{
+    const WRITE_SIZE: usize = 1;
+
+    const ERASE_SIZE: usize = FlashParams::SECTOR_SIZE;
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase_range(from, to).await
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write_bytes(offset, bytes).await
     }
 }
 
