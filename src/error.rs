@@ -1,5 +1,5 @@
 use core::fmt::{self, Debug, Display};
-use embedded_hal::spi::SpiDevice;
+use embedded_hal_async::spi::SpiDevice;
 
 mod private {
     #[derive(Debug)]

@@ -5,9 +5,10 @@ use bitflags::bitflags;
 use core::fmt;
 use core::marker::PhantomData;
 pub use core::task::Poll;
-pub use embedded_hal::digital::OutputPin;
-use embedded_hal::spi::Operation;
-pub use embedded_hal::spi::SpiDevice;
+pub use embedded_hal_async::{
+    delay::DelayUs,
+    spi::{Operation, SpiDevice},
+};
 
 /// 3-Byte JEDEC manufacturer and device identification.
 pub struct Identification {
@@ -124,18 +125,20 @@ pub trait FlashParameters {
 /// # Type Parameters
 ///
 /// * **`SPI`**: The SPI master to which the flash chip is attached.
+/// * **`FlashParams`**: Memory size.
+/// * **`Delay`**: Delay provider.
 #[derive(Debug)]
-pub struct Flash<SPI, FlashParams>
-where
-    FlashParams: FlashParameters,
-{
+pub struct Flash<SPI, FlashParams, Delay> {
     spi: SPI,
+    delay: Delay,
+    poll_delay_ms: u32,
     params: PhantomData<FlashParams>,
 }
 
-impl<SPI, FlashParams> Flash<SPI, FlashParams>
+impl<SPI, FlashParams, Delay> Flash<SPI, FlashParams, Delay>
 where
     SPI: SpiDevice<u8>,
+    Delay: DelayUs,
     FlashParams: FlashParameters,
 {
     /// Creates a new 26-series flash driver.
@@ -144,14 +147,23 @@ where
     ///
     /// * **`spi`**: An SPI master. Must be configured to operate in the correct
     ///   mode for the device.
-    pub fn init(spi: SPI, _params: FlashParams) -> Result<Flash<SPI, FlashParams>, Error<SPI>> {
+    /// * **`delay`**: A [`DelayUs`] implementation.
+    /// * **`poll_delay_ms`**: The delay between polling the chip when waiting for an operation to complete.
+    pub async fn init(
+        spi: SPI,
+        delay: Delay,
+        poll_delay_ms: u32,
+        _params: FlashParams,
+    ) -> Result<Self, Error<SPI>> {
         let mut this = Flash {
             spi,
+            delay,
+            poll_delay_ms,
             params: PhantomData,
         };
 
         // If the MCU is reset and an old operation is still ongoing, wait for it to finish.
-        this.wait_done()?;
+        this.wait_done().await?;
 
         Ok(this)
     }
@@ -176,52 +188,43 @@ where
         FlashParams::CHIP_SIZE
     }
 
-    fn command_transfer(&mut self, bytes: &mut [u8]) -> Result<(), Error<SPI>> {
-        self.spi.transfer_in_place(bytes).map_err(Error::Spi)
+    async fn command_transfer(&mut self, bytes: &mut [u8]) -> Result<(), Error<SPI>> {
+        self.spi.transfer_in_place(bytes).await.map_err(Error::Spi)
     }
 
-    fn command_write(&mut self, bytes: &[u8]) -> Result<(), Error<SPI>> {
-        self.spi.write(bytes).map_err(Error::Spi)
+    async fn command_write(&mut self, bytes: &[u8]) -> Result<(), Error<SPI>> {
+        self.spi.write(bytes).await.map_err(Error::Spi)
     }
 
     /// Reads the JEDEC manufacturer/device identification.
-    pub fn read_jedec_id(&mut self) -> Result<Identification, Error<SPI>> {
+    pub async fn read_jedec_id(&mut self) -> Result<Identification, Error<SPI>> {
         // Optimistically read 12 bytes, even though some identifiers will be shorter
         let mut buf: [u8; 12] = [0; 12];
         buf[0] = Opcode::ReadJedecId as u8;
-        self.command_transfer(&mut buf)?;
+        self.command_transfer(&mut buf).await?;
 
         // Skip buf[0] (SPI read response byte)
         Ok(Identification::from_jedec_id(&buf[1..]))
     }
 
     /// Reads the status register.
-    pub fn read_status(&mut self) -> Result<Status, Error<SPI>> {
+    pub async fn read_status(&mut self) -> Result<Status, Error<SPI>> {
         let mut buf = [Opcode::ReadStatus as u8, 0];
-        self.command_transfer(&mut buf)?;
+        self.command_transfer(&mut buf).await?;
 
         Ok(Status::from_bits_truncate(buf[1]))
     }
 
-    fn write_enable(&mut self) -> Result<(), Error<SPI>> {
+    async fn write_enable(&mut self) -> Result<(), Error<SPI>> {
         let cmd_buf = [Opcode::WriteEnable as u8];
-        self.command_write(&cmd_buf)
+        self.command_write(&cmd_buf).await
     }
 
-    pub fn wait_done(&mut self) -> Result<(), Error<SPI>> {
-        while self.read_status()?.contains(Status::BUSY) {}
-        Ok(())
-    }
-
-    pub fn poll_wait_done(&mut self) -> Poll<()> {
-        // TODO: Consider changing this to a delay based pattern
-        let status = self.read_status().unwrap_or(Status::BUSY);
-
-        if status.contains(Status::BUSY) {
-            Poll::Pending
-        } else {
-            Poll::Ready(())
+    pub async fn wait_done(&mut self) -> Result<(), Error<SPI>> {
+        while self.read_status().await?.contains(Status::BUSY) {
+            self.delay.delay_ms(self.poll_delay_ms).await;
         }
+        Ok(())
     }
 
     /// Reads flash contents into `buf`, starting at `addr`.
@@ -236,7 +239,7 @@ where
     ///
     /// * `addr`: 24-bit address to start reading at.
     /// * `buf`: Destination buffer to fill.
-    pub fn read(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error<SPI>> {
+    pub async fn read(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error<SPI>> {
         // TODO what happens if `buf` is empty?
 
         let cmd_buf = [
@@ -248,6 +251,7 @@ where
 
         self.spi
             .transaction(&mut [Operation::Write(&cmd_buf), Operation::Read(buf)])
+            .await
             .map_err(Error::Spi)
     }
 
@@ -256,8 +260,8 @@ where
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a sector boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub fn erase_sector(mut self, addr: u32) -> Result<(), Error<SPI>> {
-        self.write_enable()?;
+    pub async fn erase_sector(mut self, addr: u32) -> Result<(), Error<SPI>> {
+        self.write_enable().await?;
 
         let cmd_buf = [
             Opcode::SectorErase as u8,
@@ -265,8 +269,8 @@ where
             (addr >> 8) as u8,
             addr as u8,
         ];
-        self.command_write(&cmd_buf)?;
-        self.wait_done()
+        self.command_write(&cmd_buf).await?;
+        self.wait_done().await
     }
 
     /// Erases a block from the memory chip.
@@ -274,8 +278,8 @@ where
     /// # Parameters
     /// * `addr`: The address to start erasing at. If the address is not on a block boundary,
     ///   the lower bits can be ignored in order to make it fit.
-    pub fn erase_block(mut self, addr: u32) -> Result<(), Error<SPI>> {
-        self.write_enable()?;
+    pub async fn erase_block(mut self, addr: u32) -> Result<(), Error<SPI>> {
+        self.write_enable().await?;
 
         let cmd_buf = [
             Opcode::BlockErase as u8,
@@ -283,8 +287,8 @@ where
             (addr >> 8) as u8,
             addr as u8,
         ];
-        self.command_write(&cmd_buf)?;
-        self.wait_done()
+        self.command_write(&cmd_buf).await?;
+        self.wait_done().await
     }
 
     /// Writes bytes onto the memory chip. This method is supposed to assume that the sectors
@@ -294,8 +298,8 @@ where
     /// * `addr`: The address to write to.
     /// * `data`: The bytes to write to `addr`, note that it will only take the lowest 256 bytes
     /// from the slice.
-    pub fn write_bytes(mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
-        self.write_enable()?;
+    pub async fn write_bytes(mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
+        self.write_enable().await?;
 
         let cmd_buf = [
             Opcode::PageProg as u8,
@@ -303,26 +307,26 @@ where
             (addr >> 8) as u8,
             addr as u8,
         ];
-
         self.spi
             .transaction(&mut [
                 Operation::Write(&cmd_buf),
                 Operation::Write(&data[..256.min(data.len())]),
             ])
+            .await
             .map_err(Error::Spi)?;
 
-        self.wait_done()
+        self.wait_done().await
     }
 
     /// Erases the memory chip fully.
     ///
     /// Warning: Full erase operations can take a significant amount of time.
     /// Check your device's datasheet for precise numbers.
-    pub fn erase_all(mut self) -> Result<(), Error<SPI>> {
-        self.write_enable()?;
+    pub async fn erase_all(mut self) -> Result<(), Error<SPI>> {
+        self.write_enable().await?;
         let cmd_buf = [Opcode::ChipErase as u8];
-        self.command_write(&cmd_buf)?;
-        self.wait_done()
+        self.command_write(&cmd_buf).await?;
+        self.wait_done().await
     }
 }
 

@@ -19,7 +19,7 @@ mod utils;
 
 pub use crate::error::Error;
 
-use embedded_hal::spi::SpiDevice;
+use embedded_hal_async::spi::SpiDevice;
 
 /// A trait for reading operations from a memory chip.
 pub trait Read<Addr, SPI: SpiDevice<u8>> {
