@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_decode_jedec_id() {
-        let cypress_id_bytes = [0x81, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xC2, 0x22, 0x08];
+        let cypress_id_bytes = [0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0xC2, 0x22, 0x08];
         let ident = Identification::from_jedec_id(&cypress_id_bytes);
         assert_eq!(0xC2, ident.mfr_code());
         assert_eq!(6, ident.continuation_count());
