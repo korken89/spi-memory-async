@@ -12,8 +12,6 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 #![cfg_attr(not(test), no_std)]
 
-#[macro_use]
-mod log;
 mod error;
 pub mod prelude;
 pub mod series25;

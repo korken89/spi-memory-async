@@ -38,7 +38,6 @@ replace = "https://docs.rs/spi-memory/{{version}}"
 
 [dependencies]
 embedded-hal = "1.0.0-rc.1"
-log = { version = "0.4.6", optional = true }
 bitflags = "1.0.4"
 
 [dev-dependencies]
