@@ -136,6 +136,16 @@ pub struct Flash<SPI, FlashParams, Delay> {
     params: PhantomData<FlashParams>,
 }
 
+impl<SPI, FlashParams, Delay> FlashParameters for Flash<SPI, FlashParams, Delay>
+where
+    FlashParams: FlashParameters,
+{
+    const PAGE_SIZE: usize = FlashParams::PAGE_SIZE;
+    const SECTOR_SIZE: usize = FlashParams::SECTOR_SIZE;
+    const BLOCK_SIZE: usize = FlashParams::BLOCK_SIZE;
+    const CHIP_SIZE: usize = FlashParams::CHIP_SIZE;
+}
+
 impl<SPI, FlashParams, Delay> Flash<SPI, FlashParams, Delay>
 where
     SPI: SpiDevice<u8>,
@@ -170,22 +180,22 @@ where
     }
 
     /// Get the size of a page which can be written.
-    pub fn page_write_size(&self) -> usize {
+    pub const fn page_write_size(&self) -> usize {
         FlashParams::PAGE_SIZE
     }
 
     /// Get the size of a sector which can be erased.
-    pub fn sector_erase_size(&self) -> usize {
+    pub const fn sector_erase_size(&self) -> usize {
         FlashParams::SECTOR_SIZE
     }
 
     /// Get the size of a block which can be erased.
-    pub fn block_erase_size(&self) -> usize {
+    pub const fn block_erase_size(&self) -> usize {
         FlashParams::BLOCK_SIZE
     }
 
     /// Get the size of the flash chip.
-    pub fn chip_size(&self) -> usize {
+    pub const fn chip_size(&self) -> usize {
         FlashParams::CHIP_SIZE
     }
 
