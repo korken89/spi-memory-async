@@ -58,3 +58,17 @@ where
         }
     }
 }
+
+impl<SPI: SpiDevice<u8>> defmt::Format for Error<SPI>
+where
+    SPI::Error: defmt::Format,
+{
+    fn format(&self, f: defmt::Formatter<'_>) {
+        match self {
+            Error::NotAligned => defmt::write!(f, "arguments are not properly aligned"),
+            Error::OutOfBounds => defmt::write!(f, "arguments are out of bounds"),
+            Error::Spi(spi) => defmt::write!(f, "SPI error: {}", spi),
+            Error::UnexpectedStatus => defmt::write!(f, "unexpected value in status register"),
+        }
+    }
+}
