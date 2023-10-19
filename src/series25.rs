@@ -308,8 +308,8 @@ where
     ///
     /// # Parameters
     /// * `addr`: The address to write to.
-    /// * `data`: The bytes to write to `addr`, note that it will only take the lowest 256 bytes
-    /// from the slice.
+    /// * `data`: The bytes to write to `addr`, note that it will only take the lowest `PAGE_SIZE`
+    /// bytes from the slice.
     pub async fn write_bytes(&mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
 
@@ -322,7 +322,7 @@ where
         self.spi
             .transaction(&mut [
                 Operation::Write(&cmd_buf),
-                Operation::Write(&data[..256.min(data.len())]),
+                Operation::Write(&data[..FlashParams::PAGE_SIZE.min(data.len())]),
             ])
             .await
             .map_err(Error::Spi)?;
