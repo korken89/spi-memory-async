@@ -8,7 +8,6 @@
 //!
 //! [`embedded-hal`]: https://docs.rs/embedded-hal/
 
-#![feature(async_fn_in_trait)]
 #![doc(html_root_url = "https://docs.rs/spi-memory/0.2.0")]
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 #![cfg_attr(not(test), no_std)]
