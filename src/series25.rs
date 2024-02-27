@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 pub use core::task::Poll;
 use core::{convert::TryInto, fmt};
 pub use embedded_hal_async::{
-    delay::DelayUs,
+    delay::DelayNs,
     spi::{Operation, SpiDevice},
 };
 pub use embedded_storage_async;
@@ -150,7 +150,7 @@ where
 impl<SPI, FlashParams, Delay> Flash<SPI, FlashParams, Delay>
 where
     SPI: SpiDevice<u8>,
-    Delay: DelayUs,
+    Delay: DelayNs,
     FlashParams: FlashParameters,
 {
     /// Creates a new 26-series flash driver.
@@ -159,7 +159,7 @@ where
     ///
     /// * **`spi`**: An SPI master. Must be configured to operate in the correct
     ///   mode for the device.
-    /// * **`delay`**: A [`DelayUs`] implementation.
+    /// * **`delay`**: A [`DelayNs`] implementation.
     /// * **`poll_delay_ms`**: The delay between polling the chip when waiting for an operation to complete.
     pub async fn init(
         spi: SPI,
@@ -392,7 +392,7 @@ impl<SPI, FlashParams, Delay> embedded_storage_async::nor_flash::ReadNorFlash
     for Flash<SPI, FlashParams, Delay>
 where
     SPI: SpiDevice<u8>,
-    Delay: DelayUs,
+    Delay: DelayNs,
     FlashParams: FlashParameters,
 {
     const READ_SIZE: usize = 1;
@@ -410,7 +410,7 @@ impl<SPI, FlashParams, Delay> embedded_storage_async::nor_flash::NorFlash
     for Flash<SPI, FlashParams, Delay>
 where
     SPI: SpiDevice<u8>,
-    Delay: DelayUs,
+    Delay: DelayNs,
     FlashParams: FlashParameters,
 {
     const WRITE_SIZE: usize = 1;
