@@ -133,7 +133,7 @@ pub trait FlashParameters {
 pub struct Flash<SPI, FlashParams, Delay> {
     spi: SPI,
     delay: Delay,
-    poll_delay_ms: u32,
+    poll_delay_us: u32,
     params: PhantomData<FlashParams>,
 }
 
@@ -160,17 +160,17 @@ where
     /// * **`spi`**: An SPI master. Must be configured to operate in the correct
     ///   mode for the device.
     /// * **`delay`**: A [`DelayNs`] implementation.
-    /// * **`poll_delay_ms`**: The delay between polling the chip when waiting for an operation to complete.
+    /// * **`poll_delay_us`**: The delay between polling the chip when waiting for an operation to complete.
     pub async fn init(
         spi: SPI,
         delay: Delay,
-        poll_delay_ms: u32,
+        poll_delay_us: u32,
         _params: FlashParams,
     ) -> Result<Self, Error<SPI>> {
         let mut this = Flash {
             spi,
             delay,
-            poll_delay_ms,
+            poll_delay_us,
             params: PhantomData,
         };
 
@@ -234,7 +234,7 @@ where
 
     pub async fn wait_done(&mut self) -> Result<(), Error<SPI>> {
         while self.read_status().await?.contains(Status::BUSY) {
-            self.delay.delay_ms(self.poll_delay_ms).await;
+            self.delay.delay_us(self.poll_delay_us).await;
         }
         Ok(())
     }
