@@ -2,6 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/spi-memory-async.svg)](https://crates.io/crates/spi-memory-async)
 [![docs.rs](https://docs.rs/spi-memory-async/badge.svg)](https://docs.rs/spi-memory-async/)
+[![ci](https://github.com/korken89/spi-memory-async/.github/workflows/rust.yml/badge.svg)](https://github.com/korken89/spi-memory-async/.github/workflows/rust.yml)
 
 This crate provides a generic [`embedded-hal-async`]-based driver for different
 families of SPI Flash and EEPROM chips.
