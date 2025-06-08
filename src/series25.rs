@@ -2,9 +2,9 @@
 
 use crate::{utils::HexSlice, Error};
 use bitflags::bitflags;
+use core::fmt;
 use core::marker::PhantomData;
 pub use core::task::Poll;
-use core::{convert::TryInto, fmt};
 pub use embedded_hal_async::{
     delay::DelayNs,
     spi::{Operation, SpiDevice},
@@ -308,26 +308,36 @@ where
     ///
     /// # Parameters
     /// * `addr`: The address to write to.
-    /// * `data`: The bytes to write to `addr`, note that it will only take the lowest `PAGE_SIZE`
-    /// bytes from the slice.
-    pub async fn write_bytes(&mut self, addr: u32, data: &[u8]) -> Result<(), Error<SPI>> {
-        self.write_enable().await?;
+    /// * `data`: The bytes to write to `addr`.
+    pub async fn write_bytes(&mut self, mut addr: u32, mut data: &[u8]) -> Result<(), Error<SPI>> {
+        while !data.is_empty() {
+            // The flash can only to page aligned writes, chunk data to correct format.
+            let page_offset = addr as usize % Self::PAGE_SIZE;
+            let len = (Self::PAGE_SIZE - page_offset)
+                .min(Self::PAGE_SIZE)
+                .min(data.len());
+            let (write_data, rest) = data.split_at(len);
 
-        let cmd_buf = [
-            Opcode::PageProg as u8,
-            (addr >> 16) as u8,
-            (addr >> 8) as u8,
-            addr as u8,
-        ];
-        self.spi
-            .transaction(&mut [
-                Operation::Write(&cmd_buf),
-                Operation::Write(&data[..FlashParams::PAGE_SIZE.min(data.len())]),
-            ])
-            .await
-            .map_err(Error::Spi)?;
+            self.write_enable().await?;
 
-        self.wait_done().await
+            let cmd_buf = [
+                Opcode::PageProg as u8,
+                (addr >> 16) as u8,
+                (addr >> 8) as u8,
+                addr as u8,
+            ];
+            self.spi
+                .transaction(&mut [Operation::Write(&cmd_buf), Operation::Write(write_data)])
+                .await
+                .map_err(Error::Spi)?;
+
+            self.wait_done().await?;
+
+            addr += len as u32;
+            data = rest;
+        }
+
+        Ok(())
     }
 
     /// Erases the memory chip fully.
@@ -355,7 +365,7 @@ where
         end_address: u32,
     ) -> Result<(), Error<SPI>> {
         self.write_enable().await?;
-        let sector_size: u32 = FlashParams::SECTOR_SIZE.try_into().unwrap();
+        let sector_size: u32 = FlashParams::SECTOR_SIZE as u32;
 
         if start_address % sector_size != 0 {
             return Err(Error::NotAligned);
@@ -373,7 +383,7 @@ where
         let end_sector = end_address / sector_size;
 
         for sector in start_sector..end_sector {
-            self.erase_sector(sector).await.unwrap();
+            self.erase_sector(sector).await?;
         }
 
         Ok(())
@@ -402,7 +412,7 @@ where
     }
 
     fn capacity(&self) -> usize {
-        FlashParams::CHIP_SIZE.try_into().unwrap()
+        FlashParams::CHIP_SIZE
     }
 }
 
