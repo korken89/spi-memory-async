@@ -383,7 +383,7 @@ where
         let end_sector = end_address / sector_size;
 
         for sector in start_sector..end_sector {
-            self.erase_sector(sector).await?;
+            self.erase_sector(sector * sector_size).await.unwrap();
         }
 
         Ok(())
