@@ -11,7 +11,7 @@ pub use embedded_hal_async::{
 };
 pub use embedded_storage_async;
 
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// 3-Byte JEDEC manufacturer and device identification.
 pub struct Identification {
     /// Data collected
@@ -129,7 +129,8 @@ pub trait FlashParameters {
 /// * **`SPI`**: The SPI master to which the flash chip is attached.
 /// * **`FlashParams`**: Memory size.
 /// * **`Delay`**: Delay provider.
-#[derive(Debug, defmt::Format)]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flash<SPI, FlashParams, Delay> {
     spi: SPI,
     delay: Delay,

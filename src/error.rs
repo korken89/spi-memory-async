@@ -59,6 +59,7 @@ where
     }
 }
 
+#[cfg(feature = "defmt")]
 impl<SPI: SpiDevice<u8>> defmt::Format for Error<SPI>
 where
     SPI::Error: defmt::Format,
